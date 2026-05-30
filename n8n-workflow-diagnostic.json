@@ -1,0 +1,94 @@
+{
+  "name": "Diagnostic Lead — symoafrica.com",
+  "description": "Reçoit les leads depuis /diagnostic, crée le contact HubSpot, score le lead et envoie l'email de confirmation.",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook /diagnostic",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "path": "diagnostic",
+        "method": "POST",
+        "responseMode": "onReceived",
+        "responseCode": 200,
+        "responseData": "{\"received\": true}"
+      }
+    },
+    {
+      "id": "hubspot-create-contact",
+      "name": "HubSpot — Créer Contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [500, 300],
+      "parameters": {
+        "resource": "contact",
+        "operation": "upsert",
+        "additionalFields": {
+          "firstname": "={{$json.nom_prenom.split(' ')[0]}}",
+          "lastname": "={{$json.nom_prenom.split(' ').slice(1).join(' ')}}",
+          "phone": "={{$json.whatsapp}}",
+          "industry": "={{$json.secteur}}",
+          "numberofemployees": "={{$json.nombre_employes}}",
+          "hs_lead_status": "NEW",
+          "lead_source": "={{$json.source}}",
+          "message": "={{$json.probleme_principal}}"
+        }
+      }
+    },
+    {
+      "id": "lead-scoring",
+      "name": "Lead Scoring — Calcul",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [750, 300],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "score",
+              "value": "={{ (() => { const t = $('Webhook /diagnostic').item.json.nombre_employes; const taille_score = t.includes('200+') ? 40 : t.includes('51-200') ? 35 : t.includes('21-50') ? 25 : t.includes('6-20') ? 15 : 10; const p = $('Webhook /diagnostic').item.json.probleme_principal; const probleme_score = (p.includes('financement') || p.includes('trésorerie')) ? 30 : p.includes('clients') ? 25 : 15; return taille_score + probleme_score; })() }}",
+              "type": "number"
+            },
+            {
+              "name": "priorite",
+              "value": "={{ $json.score >= 60 ? 'HIGH' : $json.score >= 35 ? 'MEDIUM' : 'LOW' }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "send-confirmation-email",
+      "name": "Email Confirmation Client",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1000, 200],
+      "parameters": {
+        "sendTo": "symoservice@gmail.com",
+        "subject": "=Nouveau lead diagnostic — {{$('Webhook /diagnostic').item.json.nom_prenom}} (Score: {{$json.score}})",
+        "emailType": "html",
+        "message": "=<h2>Nouveau lead reçu via /diagnostic</h2><table style='border-collapse:collapse;width:100%;font-family:IBM Plex Sans,sans-serif'><tr><td style='padding:8px;border:1px solid #e5e7eb;font-weight:600'>Nom</td><td style='padding:8px;border:1px solid #e5e7eb'>{{$('Webhook /diagnostic').item.json.nom_prenom}}</td></tr><tr><td style='padding:8px;border:1px solid #e5e7eb;font-weight:600'>WhatsApp</td><td style='padding:8px;border:1px solid #e5e7eb'>+{{$('Webhook /diagnostic').item.json.whatsapp}}</td></tr><tr><td style='padding:8px;border:1px solid #e5e7eb;font-weight:600'>Secteur</td><td style='padding:8px;border:1px solid #e5e7eb'>{{$('Webhook /diagnostic').item.json.secteur}}</td></tr><tr><td style='padding:8px;border:1px solid #e5e7eb;font-weight:600'>Taille</td><td style='padding:8px;border:1px solid #e5e7eb'>{{$('Webhook /diagnostic').item.json.nombre_employes}}</td></tr><tr><td style='padding:8px;border:1px solid #e5e7eb;font-weight:600'>Problème</td><td style='padding:8px;border:1px solid #e5e7eb'>{{$('Webhook /diagnostic').item.json.probleme_principal}}</td></tr><tr><td style='padding:8px;border:1px solid #e5e7eb;font-weight:600;color:#1f9460'>Score Lead</td><td style='padding:8px;border:1px solid #e5e7eb;font-weight:700;color:#1f9460'>{{$json.score}} / 70 — {{$json.priorite}}</td></tr><tr><td style='padding:8px;border:1px solid #e5e7eb;font-weight:600'>Date</td><td style='padding:8px;border:1px solid #e5e7eb'>{{$('Webhook /diagnostic').item.json.soumis_le}}</td></tr></table>"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook /diagnostic": {
+      "main": [
+        [{ "node": "HubSpot — Créer Contact", "type": "main", "index": 0 }]
+      ]
+    },
+    "HubSpot — Créer Contact": {
+      "main": [
+        [{ "node": "Lead Scoring — Calcul", "type": "main", "index": 0 }]
+      ]
+    },
+    "Lead Scoring — Calcul": {
+      "main": [
+        [{ "node": "Email Confirmation Client", "type": "main", "index": 0 }]
+      ]
+    }
+  }
+}
